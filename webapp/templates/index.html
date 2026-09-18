@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRC-ID — Colorectal Cancer Identification &amp; Staging</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a href="#top" class="brand-mini"><span class="brand-mark">&#8677;</span> CRC-ID</a>
+    <div class="nav-links">
+      <a href="#about">About</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#performance">Performance</a>
+      <a href="#analyze" class="nav-cta">Analyze a Slide</a>
+    </div>
+  </div>
+</nav>
+
+<div class="app" id="top">
+
+  <header class="app-header hero">
+    <div class="brand">
+      <span class="brand-mark">&#8677;</span>
+      <h1>CRC-ID</h1>
+    </div>
+    <p class="tagline">Colorectal Cancer Identification &amp; Invasion-Oriented Staging from Whole Slide Images</p>
+    <p class="hero-sub">A custom hybrid CNN&ndash;Transformer pipeline that triages tumor vs. normal tissue, then estimates invasion depth &mdash; end to end, from a raw <code>.svs</code> slide to a slide-level report.</p>
+    <div class="hero-stats">
+      <div class="stat-pill pill-teal">
+        <span class="stat-num" data-count-to="99.84" data-suffix="%">0%</span>
+        <span class="stat-label">Binary accuracy</span>
+      </div>
+      <div class="stat-pill pill-blue">
+        <span class="stat-num" data-count-to="99.74" data-suffix="%">0%</span>
+        <span class="stat-label">Stage accuracy</span>
+      </div>
+      <div class="stat-pill pill-coral">
+        <span class="stat-num" data-count-to="2" data-suffix="">0</span>
+        <span class="stat-label">Fused models</span>
+      </div>
+      <div class="stat-pill pill-amber">
+        <span class="stat-num" data-count-to="4" data-suffix="">0</span>
+        <span class="stat-label">Invasion stages</span>
+      </div>
+    </div>
+    <a href="#analyze" class="hero-cta">Analyze a slide &darr;</a>
+  </header>
+
+  <!-- ================= ABOUT ================= -->
+  <section id="about" class="section reveal">
+    <span class="section-kicker">// 01 &middot; Overview</span>
+    <h2 class="section-title">About this project</h2>
+    <div class="about-grid">
+      <div class="about-card">
+        <h3>What it does</h3>
+        <p>CRC-ID takes a whole slide image (WSI), tiles it into thousands of tissue patches, filters out background,
+        and runs every tissue patch through a two-stage model: first a binary triage (Normal vs. Tumor), then &mdash;
+        for tumor patches only &mdash; an invasion-stage classifier. Results are aggregated into a single slide-level
+        report: tumor fraction, per-stage distribution, deepest invasion reached, and a recommendation.</p>
+      </div>
+      <div class="about-card">
+        <h3>Objectives</h3>
+        <ul>
+          <li>Collect and preprocess histopathology data with Macenko stain normalization, resizing, pixel
+          normalization, augmentation, and leakage-aware dataset splitting.</li>
+          <li>Design and implement a custom hybrid deep learning model for colorectal cancer identification and
+          invasion-oriented stage classification.</li>
+        </ul>
+      </div>
+      <div class="about-card">
+        <h3>Data sources</h3>
+        <p><strong>STAC-9</strong> &mdash; pre-cut, labeled tissue patches (Normal / Tumor, and four invasion-related
+        tissue types) used to train and evaluate both models.</p>
+        <p><strong>TCGA-COAD &amp; TCGA-READ</strong> &mdash; real whole slide images, used only for end-to-end
+        pipeline validation on independent, unlabeled slides.</p>
+      </div>
+      <div class="about-card about-card-note">
+        <h3>Scope &amp; clinical framing</h3>
+        <p>"Stages" here are a <strong>tissue-type proxy for invasion depth</strong> (mucosa &rarr; submucosa/stroma
+        &rarr; muscularis &rarr; serosa/fat) &mdash; not full AJCC/pTNM clinical staging, which also depends on nodal
+        and metastatic status not visible in a tissue patch. When the model isn't confident, it reports
+        <strong>"unidentified"</strong> rather than guessing, and the slide-level logic flags <strong>"and
+        beyond"</strong> when enough tissue was low-confidence that true invasion depth may exceed the reported
+        stage.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ARCHITECTURE ================= -->
+  <section id="architecture" class="section reveal">
+    <span class="section-kicker">// 02 &middot; System design</span>
+    <h2 class="section-title">How the model works</h2>
+
+    <h3 class="subsection-title">1. End-to-end slide pipeline</h3>
+    <p class="section-lead">Every whole slide image goes through the same four stages before a result is shown.</p>
+    <div class="diagram-frame">
+      <svg viewBox="0 0 900 220" class="diagram-svg" role="img" aria-label="Pipeline: WSI to tiling to binary model to staging model to slide report">
+        <defs>
+          <marker id="arrow1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="#8B96A5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+        <g>
+          <rect x="20" y="80" width="150" height="60" rx="8" class="d-box d-box-teal"/>
+          <text x="95" y="105" text-anchor="middle" class="d-title">Whole slide</text>
+          <text x="95" y="123" text-anchor="middle" class="d-title">image (.svs)</text>
+        </g>
+        <line x1="170" y1="110" x2="205" y2="110" class="d-arrow" marker-end="url(#arrow1)"/>
+        <g>
+          <rect x="205" y="80" width="150" height="60" rx="8" class="d-box d-box-purple"/>
+          <text x="280" y="103" text-anchor="middle" class="d-title">Tile + Macenko</text>
+          <text x="280" y="121" text-anchor="middle" class="d-title-sm">stain normalize</text>
+        </g>
+        <line x1="355" y1="110" x2="390" y2="110" class="d-arrow" marker-end="url(#arrow1)"/>
+        <g>
+          <rect x="390" y="80" width="150" height="60" rx="8" class="d-box d-box-teal"/>
+          <text x="465" y="103" text-anchor="middle" class="d-title">Binary model</text>
+          <text x="465" y="121" text-anchor="middle" class="d-title-sm">normal vs tumor</text>
+        </g>
+        <line x1="540" y1="110" x2="575" y2="110" class="d-arrow" marker-end="url(#arrow1)"/>
+        <g>
+          <rect x="575" y="80" width="150" height="60" rx="8" class="d-box d-box-coral"/>
+          <text x="650" y="103" text-anchor="middle" class="d-title">Stage model</text>
+          <text x="650" y="121" text-anchor="middle" class="d-title-sm">tumor patches only</text>
+        </g>
+        <line x1="725" y1="110" x2="760" y2="110" class="d-arrow" marker-end="url(#arrow1)"/>
+        <g>
+          <rect x="760" y="80" width="140" height="60" rx="8" class="d-box d-box-amber"/>
+          <text x="830" y="103" text-anchor="middle" class="d-title">Slide report</text>
+          <text x="830" y="121" text-anchor="middle" class="d-title-sm">stage + recommendation</text>
+        </g>
+        <text x="465" y="175" text-anchor="middle" class="d-caption">Normal patches are reported directly &middot; Tumor patches proceed to staging &middot; Low-confidence patches are marked "unidentified"</text>
+      </svg>
+    </div>
+
+    <h3 class="subsection-title">2. Custom hybrid CNN&ndash;Transformer (used for both models)</h3>
+    <p class="section-lead">The binary model and the stage model share the same architecture &mdash; only the final
+    classification head differs (2 classes vs. 4 classes).</p>
+    <div class="diagram-frame">
+      <svg viewBox="0 0 900 320" class="diagram-svg" role="img" aria-label="Hybrid architecture: CNN branch and Transformer branch fused via cross-attention into a classifier">
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="#8B96A5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+        <g>
+          <rect x="380" y="15" width="140" height="46" rx="8" class="d-box d-box-teal"/>
+          <text x="450" y="43" text-anchor="middle" class="d-title">Input patch 224&sup2;</text>
+        </g>
+        <path d="M450 61 L450 80 L220 80 L220 100" class="d-arrow" fill="none" stroke="#8B96A5" stroke-width="1.5" marker-end="url(#arrow2)"/>
+        <path d="M450 61 L450 80 L680 80 L680 100" class="d-arrow" fill="none" stroke="#8B96A5" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+        <g>
+          <rect x="100" y="100" width="240" height="60" rx="8" class="d-box d-box-purple"/>
+          <text x="220" y="123" text-anchor="middle" class="d-title">CNN branch</text>
+          <text x="220" y="141" text-anchor="middle" class="d-title-sm">EfficientNet-B0 (pretrained)</text>
+        </g>
+        <g>
+          <rect x="560" y="100" width="240" height="60" rx="8" class="d-box d-box-purple"/>
+          <text x="680" y="123" text-anchor="middle" class="d-title">Transformer branch</text>
+          <text x="680" y="141" text-anchor="middle" class="d-title-sm">patch embed + 4-layer self-attention</text>
+        </g>
+
+        <path d="M220 160 L220 185 L450 185 L450 200" class="d-arrow" fill="none" stroke="#8B96A5" stroke-width="1.5" marker-end="url(#arrow2)"/>
+        <path d="M680 160 L680 185 L450 185 L450 200" class="d-arrow" fill="none" stroke="#8B96A5" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+        <g>
+          <rect x="270" y="200" width="360" height="60" rx="8" class="d-box d-box-coral"/>
+          <text x="450" y="223" text-anchor="middle" class="d-title">Cross-Attention Fusion</text>
+          <text x="450" y="241" text-anchor="middle" class="d-title-sm">CNN &harr; Transformer tokens attend to each other</text>
+        </g>
+        <line x1="450" y1="260" x2="450" y2="280" class="d-arrow" marker-end="url(#arrow2)"/>
+        <g>
+          <rect x="350" y="280" width="200" height="36" rx="18" class="d-box d-box-amber"/>
+          <text x="450" y="303" text-anchor="middle" class="d-title-sm">MLP classifier (2 or 4-way)</text>
+        </g>
+      </svg>
+    </div>
+
+    <h3 class="subsection-title">3. Preprocessing pipeline</h3>
+    <ol class="pipeline-note">
+      <li>Macenko stain normalization</li>
+      <li>Resize + pixel normalization</li>
+      <li>Augmentation (flips, rotation, elastic, color jitter)</li>
+      <li>Slide/patient-grouped 60/15/25 split</li>
+      <li>Optuna hyperparameter tuning</li>
+    </ol>
+  </section>
+
+  <!-- ================= PERFORMANCE ================= -->
+  <section id="performance" class="section reveal">
+    <span class="section-kicker">// 03 &middot; Evaluation</span>
+    <h2 class="section-title">Model performance</h2>
+    <p class="section-lead">Measured on the held-out 25% test split &mdash; never seen during training or validation.</p>
+
+    <div class="perf-images">
+      <figure class="perf-figure">
+        <img src="{{ url_for('static', filename='performance/binary_confusion_matrix.png') }}" alt="Binary model confusion matrix">
+        <figcaption>Binary model &mdash; confusion matrix</figcaption>
+      </figure>
+      <figure class="perf-figure">
+        <img src="{{ url_for('static', filename='performance/binary_roc_curve.png') }}" alt="Binary model ROC curves">
+        <figcaption>Binary model &mdash; ROC curves</figcaption>
+      </figure>
+      <figure class="perf-figure">
+        <img src="{{ url_for('static', filename='performance/stage_confusion_matrix.png') }}" alt="Stage model confusion matrix">
+        <figcaption>Stage model &mdash; confusion matrix</figcaption>
+      </figure>
+      <figure class="perf-figure">
+        <img src="{{ url_for('static', filename='performance/stage_roc_curve.png') }}" alt="Stage model ROC curves">
+        <figcaption>Stage model &mdash; ROC curves</figcaption>
+      </figure>
+    </div>
+
+    <h3 class="subsection-title">Binary model &mdash; Normal vs. Tumor (2,500 test images)</h3>
+    <div class="table-wrap">
+      <table class="metrics-table">
+        <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1-score</th><th>Support</th></tr></thead>
+        <tbody>
+          <tr><td>NOR</td><td>0.9992</td><td>0.9976</td><td>0.9984</td><td>1250</td></tr>
+          <tr><td>TUM</td><td>0.9976</td><td>0.9992</td><td>0.9984</td><td>1250</td></tr>
+          <tr class="metrics-total"><td>Accuracy</td><td colspan="3">0.9984</td><td>2500</td></tr>
+          <tr><td>Macro avg</td><td>0.9984</td><td>0.9984</td><td>0.9984</td><td>2500</td></tr>
+          <tr><td>Weighted avg</td><td>0.9984</td><td>0.9984</td><td>0.9984</td><td>2500</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="subsection-title">Stage model &mdash; 4-class invasion tissue type (5,001 test images)</h3>
+    <div class="table-wrap">
+      <table class="metrics-table">
+        <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1-score</th><th>Support</th></tr></thead>
+        <tbody>
+          <tr><td>stage0 (mucus)</td><td>0.9984</td><td>0.9992</td><td>0.9988</td><td>1250</td></tr>
+          <tr><td>stage1 (stroma)</td><td>0.9936</td><td>0.9976</td><td>0.9956</td><td>1250</td></tr>
+          <tr><td>stage2 (muscle)</td><td>0.9984</td><td>0.9928</td><td>0.9956</td><td>1250</td></tr>
+          <tr><td>stage3 (adipose)</td><td>0.9992</td><td>1.0000</td><td>0.9996</td><td>1251</td></tr>
+          <tr class="metrics-total"><td>Accuracy</td><td colspan="3">0.9974</td><td>5001</td></tr>
+          <tr><td>Macro avg</td><td>0.9974</td><td>0.9974</td><td>0.9974</td><td>5001</td></tr>
+          <tr><td>Weighted avg</td><td>0.9974</td><td>0.9974</td><td>0.9974</td><td>5001</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="section-note">All ROC-AUC values are 1.000 per class on this test set. Since STAC-9 patches lack
+    recoverable slide/patient IDs, this split is per-image rather than per-patient &mdash; a caveat worth stating
+    alongside these numbers.</p>
+  </section>
+
+  <!-- ================= ANALYZE ================= -->
+  <main id="analyze" class="section analyze-section reveal">
+    <span class="section-kicker">// 04 &middot; Live demo</span>
+    <h2 class="section-title">Try it &mdash; analyze a whole slide image</h2>
+
+    <section id="upload-view" class="view active">
+      <div class="dropzone" id="dropzone" tabindex="0">
+        <div class="dropzone-inner">
+          <div class="tray">
+            <div class="tray-slide"></div>
+            <div class="tray-slide tray-slide-2"></div>
+            <div class="tray-slide tray-slide-3"></div>
+          </div>
+          <h2>Load a whole slide image</h2>
+          <p>Drop a <code>.svs</code> file here, or click to browse</p>
+          <input type="file" id="file-input" accept=".svs,.tif,.tiff,.ndpi" hidden>
+        </div>
+      </div>
+      <ol class="pipeline-note">
+        <li>Tile &amp; filter tissue</li>
+        <li>Binary triage</li>
+        <li>Invasion staging</li>
+        <li>Slide report</li>
+      </ol>
+      <p id="upload-error" class="error-text" hidden></p>
+    </section>
+
+    <section id="scan-view" class="view">
+      <div class="scan-head">
+        <h2 id="scan-slide-name">slide.svs</h2>
+        <p id="scan-phase-label">Tiling slide&hellip;</p>
+      </div>
+
+      <div class="scan-frame">
+        <div class="scan-grid" id="scan-grid"></div>
+        <div class="scan-line" id="scan-line"></div>
+      </div>
+
+      <div class="scan-stats">
+        <div class="stat-count">
+          <span class="mono" id="stat-processed">0</span>
+          <span class="stat-sep">/</span>
+          <span class="mono" id="stat-total">0</span>
+          <span class="stat-label">tissue patches classified</span>
+        </div>
+        <div class="legend">
+          <span class="dot dot-teal"></span> Normal
+          <span class="dot dot-coral"></span> Tumor
+        </div>
+      </div>
+    </section>
+
+    <section id="results-view" class="view">
+      <div class="results-grid">
+
+        <div class="card card-dominant">
+          <span class="card-eyebrow">Deepest invasion reached</span>
+          <div class="dominant-stage" id="dominant-stage-value">&mdash;</div>
+          <div class="dominant-stage-sub" id="dominant-stage-sub"></div>
+        </div>
+
+        <div class="card card-call">
+          <span class="card-eyebrow">Slide-level call</span>
+          <div class="slide-call" id="slide-call-value">&mdash;</div>
+          <p class="recommendation" id="recommendation-text"></p>
+        </div>
+
+        <div class="card card-fraction">
+          <span class="card-eyebrow">Tumor fraction</span>
+          <div class="fraction-ring">
+            <svg viewBox="0 0 120 120">
+              <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+              <circle class="ring-fill" id="fraction-ring-fill" cx="60" cy="60" r="52"></circle>
+            </svg>
+            <div class="fraction-value mono" id="fraction-value">0%</div>
+          </div>
+          <p class="fraction-caption" id="fraction-caption"></p>
+        </div>
+
+        <div class="card card-distribution">
+          <span class="card-eyebrow">Stage distribution across tumor patches</span>
+          <div class="bars" id="distribution-bars"></div>
+        </div>
+
+      </div>
+
+      <button class="btn-reset" id="reset-btn">Analyze another slide</button>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>CRC-ID &mdash; a final year project. Not a diagnostic device; results are decision-support only and require
+    pathologist review.</p>
+  </footer>
+
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
